@@ -88,8 +88,8 @@ add_subdirectory(planning) # flann
 add_subdirectory(utils) # tinyxml2, bullet
 add_subdirectory(gui) # opengl, glut, bullet
 
-set(DART_CONFIG_HPP_IN ${CMAKE_SOURCE_DIR}/dart/config.hpp.in)
-set(DART_CONFIG_HPP_OUT ${CMAKE_BINARY_DIR}/dart/config.hpp)
+set(DART_CONFIG_HPP_IN ${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in)
+set(DART_CONFIG_HPP_OUT ${CMAKE_CURRENT_BINARY_DIR}/config.hpp)
 if(DART_VERBOSE)
   message(STATUS ${DART_CONFIG_HPP_OUT})
 endif()

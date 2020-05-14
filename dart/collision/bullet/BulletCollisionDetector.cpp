@@ -55,6 +55,7 @@
 #include "dart/dynamics/EllipsoidShape.hpp"
 #include "dart/dynamics/HeightmapShape.hpp"
 #include "dart/dynamics/MeshShape.hpp"
+#include "dart/dynamics/ConvexHullShape.hpp"
 #include "dart/dynamics/MultiSphereConvexHullShape.hpp"
 #include "dart/dynamics/PlaneShape.hpp"
 #include "dart/dynamics/Shape.hpp"
@@ -91,6 +92,9 @@ std::unique_ptr<btCollisionShape> createBulletEllipsoidMesh(
     float sizeX, float sizeY, float sizeZ);
 
 std::unique_ptr<btCollisionShape> createBulletCollisionShapeFromAssimpScene(
+    const Eigen::Vector3d& scale, const aiScene* scene);
+
+std::unique_ptr<btCollisionShape> createBulletConvexHullShapeFromAssimpScene(
     const Eigen::Vector3d& scale, const aiScene* scene);
 
 std::unique_ptr<btCollisionShape> createBulletCollisionShapeFromAssimpMesh(
@@ -488,6 +492,7 @@ BulletCollisionDetector::createBulletCollisionShape(
   using dynamics::HeightmapShaped;
   using dynamics::HeightmapShapef;
   using dynamics::MeshShape;
+  using dynamics::ConvexHullShape;
   using dynamics::MultiSphereConvexHullShape;
   using dynamics::PlaneShape;
   using dynamics::Shape;
@@ -626,6 +631,20 @@ BulletCollisionDetector::createBulletCollisionShape(
 
     auto bulletCollisionShape
         = createBulletCollisionShapeFromAssimpScene(scale, mesh);
+
+    return std::make_unique<BulletCollisionShape>(
+        std::move(bulletCollisionShape));
+  }
+  else if (shape->is<ConvexHullShape>())
+  {
+    assert(dynamic_cast<const ConvexHullShape*>(shape.get()));
+
+    const auto shapeConvexHull = static_cast<const ConvexHullShape*>(shape.get());
+    const auto scale = shapeConvexHull->getScale();
+    const auto mesh = shapeConvexHull->getMesh();
+
+    auto bulletCollisionShape
+        = createBulletConvexHullShapeFromAssimpScene(scale, mesh);
 
     return std::make_unique<BulletCollisionShape>(
         std::move(bulletCollisionShape));
@@ -933,31 +952,22 @@ std::unique_ptr<btCollisionShape> createBulletEllipsoidMesh(
          {50, 51, 58}, {51, 52, 58}, {52, 53, 58}, {53, 54, 58}, {54, 55, 58},
          {55, 56, 58}, {56, 49, 58}};
 
-  auto triMesh = new btTriangleMesh();
+  auto convexHullShape = new btConvexHullShape();
 
   for (auto i = 0u; i < 112; ++i)
   {
-    btVector3 vertices[3];
-
-    const auto& index0 = f[i][0];
-    const auto& index1 = f[i][1];
-    const auto& index2 = f[i][2];
-
-    const auto& p0 = v[index0];
-    const auto& p1 = v[index1];
-    const auto& p2 = v[index2];
-
-    vertices[0] = btVector3(p0[0] * sizeX, p0[1] * sizeY, p0[2] * sizeZ);
-    vertices[1] = btVector3(p1[0] * sizeX, p1[1] * sizeY, p1[2] * sizeZ);
-    vertices[2] = btVector3(p2[0] * sizeX, p2[1] * sizeY, p2[2] * sizeZ);
-
-    triMesh->addTriangle(vertices[0], vertices[1], vertices[2]);
+    for ( auto k = 0u; k < 3; k++ )
+    {
+      const auto& index = f[i][k];
+      const auto& point = v[index];
+      convexHullShape->addPoint( btVector3( point[0] * sizeX, point[1] * sizeY, point[2] * sizeZ ) );
+    }
   }
+  convexHullShape->setMargin(0.0);
+  convexHullShape->recalcLocalAabb();
+  //// convexHullShape->optimizeConvexHull();
 
-  auto gimpactMeshShape = std::make_unique<btGImpactMeshShape>(triMesh);
-  gimpactMeshShape->updateBound();
-
-  return gimpactMeshShape;
+  return std::unique_ptr<btConvexHullShape>(convexHullShape);
 }
 
 //==============================================================================
@@ -988,6 +998,33 @@ std::unique_ptr<btCollisionShape> createBulletCollisionShapeFromAssimpScene(
   gimpactMeshShape->setUserPointer(triMesh);
 
   return gimpactMeshShape;
+}
+
+//==============================================================================
+std::unique_ptr<btCollisionShape> createBulletConvexHullShapeFromAssimpScene(
+    const Eigen::Vector3d& scale, const aiScene* scene)
+{
+  auto convexHullShape = new btConvexHullShape();
+
+  for (auto i = 0u; i < scene->mNumMeshes; ++i)
+  {
+    for (auto j = 0u; j < scene->mMeshes[i]->mNumFaces; ++j)
+    {
+      for (auto k = 0u; k < 3; ++k)
+      {
+        const aiVector3D& vertex
+            = scene->mMeshes[i]
+                  ->mVertices[scene->mMeshes[i]->mFaces[j].mIndices[k]];
+        convexHullShape->addPoint(
+            btVector3(vertex.x * scale[0], vertex.y * scale[1], vertex.z * scale[2]), false);
+      }
+    }
+  }
+  convexHullShape->setMargin(0.0);
+  convexHullShape->recalcLocalAabb();
+  //// convexHullShape->optimizeConvexHull();
+
+  return std::unique_ptr<btConvexHullShape>(convexHullShape);
 }
 
 //==============================================================================

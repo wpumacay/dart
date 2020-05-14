@@ -66,6 +66,7 @@ public:
     PLANE,
     MULTISPHERE,
     MESH,
+    CONVEX_HULL,
     SOFT_MESH,
     LINE_SEGMENT,
     HEIGHTMAP,

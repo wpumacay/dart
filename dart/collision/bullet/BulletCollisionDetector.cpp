@@ -1070,8 +1070,9 @@ std::unique_ptr<BulletCollisionShape> createBulletCollisionShapeFromHeightmap(
     // scalarType = PHY_DOUBLE;
   }
 
-  // the y-values in the height field need to be flipped
-  heightMap->flipY();
+  //// // the y-values in the height field need to be flipped
+  //// // @note: expected format for other engines is row-major, so let's stick to that
+  //// heightMap->flipY();
 
   const auto& heights = heightMap->getHeightField();
 

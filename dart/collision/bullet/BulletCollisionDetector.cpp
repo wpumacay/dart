@@ -56,6 +56,7 @@
 #include "dart/dynamics/HeightmapShape.hpp"
 #include "dart/dynamics/MeshShape.hpp"
 #include "dart/dynamics/ConvexHullShape.hpp"
+#include "dart/dynamics/TriangleMeshShape.hpp"
 #include "dart/dynamics/MultiSphereConvexHullShape.hpp"
 #include "dart/dynamics/PlaneShape.hpp"
 #include "dart/dynamics/Shape.hpp"
@@ -96,6 +97,9 @@ std::unique_ptr<btCollisionShape> createBulletCollisionShapeFromAssimpScene(
 
 std::unique_ptr<btCollisionShape> createBulletConvexHullShapeFromAssimpScene(
     const Eigen::Vector3d& scale, const aiScene* scene);
+
+std::unique_ptr<btCollisionShape> createBulletTriangleMeshShapeFromMeshData(
+    const std::vector<float>& vertexData, const std::vector<int>& indexData);
 
 std::unique_ptr<btCollisionShape> createBulletCollisionShapeFromAssimpMesh(
     const aiMesh* mesh);
@@ -493,6 +497,7 @@ BulletCollisionDetector::createBulletCollisionShape(
   using dynamics::HeightmapShapef;
   using dynamics::MeshShape;
   using dynamics::ConvexHullShape;
+  using dynamics::TriangleMeshShape;
   using dynamics::MultiSphereConvexHullShape;
   using dynamics::PlaneShape;
   using dynamics::Shape;
@@ -645,6 +650,20 @@ BulletCollisionDetector::createBulletCollisionShape(
 
     auto bulletCollisionShape
         = createBulletConvexHullShapeFromAssimpScene(scale, mesh);
+
+    return std::make_unique<BulletCollisionShape>(
+        std::move(bulletCollisionShape));
+  }
+  else if (shape->is<TriangleMeshShape>())
+  {
+    assert(dynamic_cast<const TriangleMeshShape*>(shape.get()));
+
+    const auto shapeTriangleMesh = static_cast<const TriangleMeshShape*>(shape.get());
+    const auto& vertexData = shapeTriangleMesh->getVertexData();
+    const auto& indexData = shapeTriangleMesh->getIndexData();
+
+    auto bulletCollisionShape
+        = createBulletTriangleMeshShapeFromMeshData(vertexData, indexData);
 
     return std::make_unique<BulletCollisionShape>(
         std::move(bulletCollisionShape));
@@ -1025,6 +1044,26 @@ std::unique_ptr<btCollisionShape> createBulletConvexHullShapeFromAssimpScene(
   //// convexHullShape->optimizeConvexHull();
 
   return std::unique_ptr<btConvexHullShape>(convexHullShape);
+}
+
+//==============================================================================
+std::unique_ptr<btCollisionShape> createBulletTriangleMeshShapeFromMeshData(
+    const std::vector<float>& vertexData, const std::vector<int>& indexData)
+{
+  btIndexedMesh btMeshData;
+  btMeshData.m_vertexBase = (const unsigned char*)vertexData.data();
+  btMeshData.m_vertexStride = sizeof(float) * 3;
+  btMeshData.m_numVertices = vertexData.size() / 3;
+  btMeshData.m_triangleIndexBase = (const unsigned char*)indexData.data();
+  btMeshData.m_triangleIndexStride = sizeof(int) * 3;
+  btMeshData.m_numTriangles = indexData.size() / 3;
+  btMeshData.m_indexType = PHY_INTEGER;
+
+  auto meshInterface = new btTriangleIndexVertexArray();
+  meshInterface->addIndexedMesh(btMeshData, PHY_INTEGER);
+  const bool useQuantizedAabbCompression = true;
+
+  return std::make_unique<btBvhTriangleMeshShape>(meshInterface, useQuantizedAabbCompression);
 }
 
 //==============================================================================

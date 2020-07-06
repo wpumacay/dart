@@ -30,10 +30,11 @@
  *   POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "dart/dynamics/ConvexHullShape.hpp"
+#include "dart/dynamics/TriangleMeshShape.hpp"
 
 #include <limits>
 #include <string>
+#include <stack>
 
 #include <assimp/Importer.hpp>
 #include <assimp/cimport.h>
@@ -50,78 +51,79 @@ namespace dart {
 namespace dynamics {
 
 //==============================================================================
-ConvexHullShape::ConvexHullShape(
+TriangleMeshShape::TriangleMeshShape(
     const Eigen::Vector3d& scale,
     const aiScene* mesh,
     const common::Uri& path,
     common::ResourceRetrieverPtr resourceRetriever)
-  : Shape(CONVEX_MESH),
+  : Shape(TRIANGLE_MESH),
     mDisplayList(0),
     mColorMode(MATERIAL_COLOR),
     mAlphaMode(BLEND),
     mColorIndex(0)
 {
+  mScale = scale;
   setMesh(mesh, path, std::move(resourceRetriever));
   setScale(scale);
 }
 
 //==============================================================================
-ConvexHullShape::~ConvexHullShape()
+TriangleMeshShape::~TriangleMeshShape()
 {
   aiReleaseImport(mMesh);
 }
 
 //==============================================================================
-const std::string& ConvexHullShape::getType() const
+const std::string& TriangleMeshShape::getType() const
 {
   return getStaticType();
 }
 
 //==============================================================================
-const std::string& ConvexHullShape::getStaticType()
+const std::string& TriangleMeshShape::getStaticType()
 {
-  static const std::string type("ConvexHullShape");
+  static const std::string type("TriangleMeshShape");
   return type;
 }
 
 //==============================================================================
-const aiScene* ConvexHullShape::getMesh() const
+const aiScene* TriangleMeshShape::getMesh() const
 {
   return mMesh;
 }
 
 //==============================================================================
-std::string ConvexHullShape::getMeshUri() const
+std::string TriangleMeshShape::getMeshUri() const
 {
   return mMeshUri.toString();
 }
 
 //==============================================================================
-const common::Uri& ConvexHullShape::getMeshUri2() const
+const common::Uri& TriangleMeshShape::getMeshUri2() const
 {
   return mMeshUri;
 }
 
 //==============================================================================
-void ConvexHullShape::update()
+void TriangleMeshShape::update()
 {
   // Do nothing
 }
 
 //==============================================================================
-const std::string& ConvexHullShape::getMeshPath() const
+const std::string& TriangleMeshShape::getMeshPath() const
 {
   return mMeshPath;
 }
 
 //==============================================================================
-common::ResourceRetrieverPtr ConvexHullShape::getResourceRetriever()
+common::ResourceRetrieverPtr TriangleMeshShape::getResourceRetriever()
 {
   return mResourceRetriever;
 }
 
 //==============================================================================
-void ConvexHullShape::setMesh(
+void TriangleMeshShape::setMesh(
     const aiScene* mesh,
     const std::string& path,
     common::ResourceRetrieverPtr resourceRetriever)
@@ -130,7 +132,7 @@ void ConvexHullShape::setMesh(
 }
 
 //==============================================================================
-void ConvexHullShape::setMesh(
+void TriangleMeshShape::setMesh(
     const aiScene* mesh,
     const common::Uri& uri,
     common::ResourceRetrieverPtr resourceRetriever)
@@ -153,12 +155,50 @@ void ConvexHullShape::setMesh(
     mMeshPath.clear();
 
   mResourceRetriever = std::move(resourceRetriever);
-
+  collectMeshData(mMesh);
   incrementVersion();
 }
 
 //==============================================================================
-void ConvexHullShape::setScale(const Eigen::Vector3d& scale)
+void TriangleMeshShape::collectMeshData(const aiScene* mesh)
+{
+  mVertexData.clear();
+  mIndexData.clear();
+
+  std::stack<const aiNode*> dfs_traversal;
+  dfs_traversal.push( mesh->mRootNode );
+  while( !dfs_traversal.empty() )
+  {
+    auto assimp_node = dfs_traversal.top();
+    dfs_traversal.pop();
+    if ( !assimp_node )
+      continue;
+
+    for ( ssize_t i = 0; i < assimp_node->mNumMeshes; i++ )
+    {
+      auto assimp_mesh = mesh->mMeshes[assimp_node->mMeshes[i]];
+      for ( ssize_t v = 0; v < assimp_mesh->mNumVertices; v++ )
+      {
+        mVertexData.push_back( mScale.x() * assimp_mesh->mVertices[v].x );
+        mVertexData.push_back( mScale.y() * assimp_mesh->mVertices[v].y );
+        mVertexData.push_back( mScale.z() * assimp_mesh->mVertices[v].z );
+      }
+      for ( ssize_t f = 0; f < assimp_mesh->mNumFaces; f++ )
+      {
+        auto assimp_face = assimp_mesh->mFaces[f];
+        mIndexData.push_back( assimp_face.mIndices[0] );
+        mIndexData.push_back( assimp_face.mIndices[1] );
+        mIndexData.push_back( assimp_face.mIndices[2] );
+      }
+    }
+
+    for ( ssize_t i = 0; i < assimp_node->mNumChildren; i++ )
+        dfs_traversal.push( assimp_node->mChildren[i] );
+  }
+}
+
+//==============================================================================
+void TriangleMeshShape::setScale(const Eigen::Vector3d& scale)
 {
   assert((scale.array() > 0.0).all());
 
@@ -170,68 +210,68 @@ void ConvexHullShape::setScale(const Eigen::Vector3d& scale)
 }
 
 //==============================================================================
-const Eigen::Vector3d& ConvexHullShape::getScale() const
+const Eigen::Vector3d& TriangleMeshShape::getScale() const
 {
   return mScale;
 }
 
 //==============================================================================
-void ConvexHullShape::setColorMode(ColorMode mode)
+void TriangleMeshShape::setColorMode(ColorMode mode)
 {
   mColorMode = mode;
 }
 
 //==============================================================================
-ConvexHullShape::ColorMode ConvexHullShape::getColorMode() const
+TriangleMeshShape::ColorMode TriangleMeshShape::getColorMode() const
 {
   return mColorMode;
 }
 
 //==============================================================================
-void ConvexHullShape::setAlphaMode(ConvexHullShape::AlphaMode mode)
+void TriangleMeshShape::setAlphaMode(TriangleMeshShape::AlphaMode mode)
 {
   mAlphaMode = mode;
 }
 
 //==============================================================================
-ConvexHullShape::AlphaMode ConvexHullShape::getAlphaMode() const
+TriangleMeshShape::AlphaMode TriangleMeshShape::getAlphaMode() const
 {
   return mAlphaMode;
 }
 
 //==============================================================================
-void ConvexHullShape::setColorIndex(int index)
+void TriangleMeshShape::setColorIndex(int index)
 {
   mColorIndex = index;
 }
 
 //==============================================================================
-int ConvexHullShape::getColorIndex() const
+int TriangleMeshShape::getColorIndex() const
 {
   return mColorIndex;
 }
 
 //==============================================================================
-int ConvexHullShape::getDisplayList() const
+int TriangleMeshShape::getDisplayList() const
 {
   return mDisplayList;
 }
 
 //==============================================================================
-void ConvexHullShape::setDisplayList(int index)
+void TriangleMeshShape::setDisplayList(int index)
 {
   mDisplayList = index;
 }
 
 //==============================================================================
-Eigen::Matrix3d ConvexHullShape::computeInertia(double _mass) const
+Eigen::Matrix3d TriangleMeshShape::computeInertia(double _mass) const
 {
   // Use bounding box to represent the mesh
   return BoxShape::computeInertia(getBoundingBox().computeFullExtents(), _mass);
 }
 
 //==============================================================================
-void ConvexHullShape::updateBoundingBox() const
+void TriangleMeshShape::updateBoundingBox() const
 {
   if (!mMesh)
   {
@@ -275,7 +315,7 @@ void ConvexHullShape::updateBoundingBox() const
 }
 
 //==============================================================================
-void ConvexHullShape::updateVolume() const
+void TriangleMeshShape::updateVolume() const
 {
   const Eigen::Vector3d bounds = getBoundingBox().computeFullExtents();
   mVolume = bounds.x() * bounds.y() * bounds.z();
@@ -283,7 +323,7 @@ void ConvexHullShape::updateVolume() const
 }
 
 //==============================================================================
-const aiScene* ConvexHullShape::loadMesh(
+const aiScene* TriangleMeshShape::loadMesh(
     const std::string& _uri, const common::ResourceRetrieverPtr& retriever)
 {
   // Remove points and lines from the import.
@@ -312,7 +352,7 @@ const aiScene* ConvexHullShape::loadMesh(
   // necessary because the importer owns the memory that it allocates.
   if (!scene)
   {
-    dtwarn << "[ConvexHullShape::loadMesh] Failed loading mesh '" << _uri << "'.\n";
+    dtwarn << "[TriangleMeshShape::loadMesh] Failed loading mesh '" << _uri << "'.\n";
     aiReleasePropertyStore(propertyStore);
     return nullptr;
   }
@@ -340,7 +380,7 @@ const aiScene* ConvexHullShape::loadMesh(
   // import process, because we may have changed mTransformation above.
   scene = aiApplyPostProcessing(scene, aiProcess_PreTransformVertices);
   if (!scene)
-    dtwarn << "[ConvexHullShape::loadMesh] Failed pre-transforming vertices.\n";
+    dtwarn << "[TriangleMeshShape::loadMesh] Failed pre-transforming vertices.\n";
 
   aiReleasePropertyStore(propertyStore);
 
@@ -348,14 +388,14 @@ const aiScene* ConvexHullShape::loadMesh(
 }
 
 //==============================================================================
-const aiScene* ConvexHullShape::loadMesh(
+const aiScene* TriangleMeshShape::loadMesh(
     const common::Uri& uri, const common::ResourceRetrieverPtr& retriever)
 {
   return loadMesh(uri.toString(), retriever);
 }
 
 //==============================================================================
-const aiScene* ConvexHullShape::loadMesh(const std::string& filePath)
+const aiScene* TriangleMeshShape::loadMesh(const std::string& filePath)
 {
   const auto retriever = std::make_shared<common::LocalResourceRetriever>();
   return loadMesh("file://" + filePath, retriever);

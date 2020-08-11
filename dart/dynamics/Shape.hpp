@@ -71,6 +71,7 @@ public:
     SOFT_MESH,
     LINE_SEGMENT,
     HEIGHTMAP,
+    COMPOUND,
     UNSUPPORTED
   };
 

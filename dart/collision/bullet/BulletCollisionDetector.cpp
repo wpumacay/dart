@@ -57,6 +57,7 @@
 #include "dart/dynamics/MeshShape.hpp"
 #include "dart/dynamics/ConvexHullShape.hpp"
 #include "dart/dynamics/TriangleMeshShape.hpp"
+#include "dart/dynamics/CompoundShape.hpp"
 #include "dart/dynamics/MultiSphereConvexHullShape.hpp"
 #include "dart/dynamics/PlaneShape.hpp"
 #include "dart/dynamics/Shape.hpp"
@@ -100,6 +101,9 @@ std::unique_ptr<btCollisionShape> createBulletConvexHullShapeFromAssimpScene(
 
 std::unique_ptr<btCollisionShape> createBulletTriangleMeshShapeFromMeshData(
     const std::vector<float>& vertexData, const std::vector<int>& indexData);
+
+std::unique_ptr<btCollisionShape> createBulletCompoundShapeFromChildren(
+    const std::vector<const dart::dynamics::Shape*>& children_shapes, const std::vector<Eigen::Isometry3d>& children_tfs);
 
 std::unique_ptr<btCollisionShape> createBulletCollisionShapeFromAssimpMesh(
     const aiMesh* mesh);
@@ -498,6 +502,7 @@ BulletCollisionDetector::createBulletCollisionShape(
   using dynamics::MeshShape;
   using dynamics::ConvexHullShape;
   using dynamics::TriangleMeshShape;
+  using dynamics::CompoundShape;
   using dynamics::MultiSphereConvexHullShape;
   using dynamics::PlaneShape;
   using dynamics::Shape;
@@ -664,6 +669,20 @@ BulletCollisionDetector::createBulletCollisionShape(
 
     auto bulletCollisionShape
         = createBulletTriangleMeshShapeFromMeshData(vertexData, indexData);
+
+    return std::make_unique<BulletCollisionShape>(
+        std::move(bulletCollisionShape));
+  }
+  else if (shape->is<CompoundShape>())
+  {
+    assert(dynamic_cast<const CompoundShape*>(shape.get()));
+
+    const auto shapeCompound = static_cast<const CompoundShape*>(shape.get());
+    auto children_shapes = shapeCompound->children();
+    auto children_tfs = shapeCompound->children_tfs();
+
+    auto bulletCollisionShape
+        = createBulletCompoundShapeFromChildren(children_shapes, children_tfs);
 
     return std::make_unique<BulletCollisionShape>(
         std::move(bulletCollisionShape));
@@ -1064,6 +1083,54 @@ std::unique_ptr<btCollisionShape> createBulletTriangleMeshShapeFromMeshData(
   const bool useQuantizedAabbCompression = true;
 
   return std::make_unique<btBvhTriangleMeshShape>(meshInterface, useQuantizedAabbCompression);
+}
+
+//
+
+std::unique_ptr<btCollisionShape> createBulletCompoundShapeFromChildren(
+    const std::vector<const dart::dynamics::Shape*>& children_shapes, const std::vector<Eigen::Isometry3d>& children_tfs)
+{
+  auto compoundShape = new btCompoundShape();
+  for (size_t i = 0; i < children_shapes.size(); i++)
+  {
+    const auto child_shape = children_shapes[i];
+    const auto child_tf = children_tfs[i];
+    /**/ if (child_shape->is<dynamics::BoxShape>())
+    {
+      auto box_shape = static_cast<const dynamics::BoxShape*>(child_shape);
+      auto box_size = box_shape->getSize();
+      auto bt_box_shape = new btBoxShape(convertVector3(box_size * 0.5));
+      compoundShape->addChildShape(convertTransform(child_tf), bt_box_shape);
+    }
+    else if (child_shape->is<dynamics::SphereShape>())
+    {
+      auto sphere_shape = static_cast<const dynamics::SphereShape*>(child_shape);
+      auto sphere_radius = sphere_shape->getRadius();
+      auto bt_sphere_shape = new btSphereShape(sphere_radius);
+      compoundShape->addChildShape(convertTransform(child_tf), bt_sphere_shape);
+    }
+    else if (child_shape->is<dynamics::CapsuleShape>())
+    {
+      auto capsule_shape = static_cast<const dynamics::CapsuleShape*>(child_shape);
+      auto capsule_radius = capsule_shape->getRadius();
+      auto capsule_height = capsule_shape->getHeight();
+      auto bt_capsule_shape = new btCapsuleShapeZ(capsule_radius, capsule_height);
+      compoundShape->addChildShape(convertTransform(child_tf), bt_capsule_shape);
+    }
+    else if (child_shape->is<dynamics::CylinderShape>())
+    {
+      auto cylinder_shape = static_cast<const dynamics::CylinderShape*>(child_shape);
+      auto cylinder_radius = cylinder_shape->getRadius();
+      auto cylinder_height = cylinder_shape->getHeight();
+      auto bt_cylinder_shape = new btCylinderShapeZ(btVector3(cylinder_radius, cylinder_radius, 0.5 * cylinder_height));
+      compoundShape->addChildShape(convertTransform(child_tf), bt_cylinder_shape);
+    }
+    else
+    {
+      dtdbg << "Shape not supported for creating a compound-shape" << std::endl;
+    }
+  }
+  return std::unique_ptr<btCollisionShape>(compoundShape);
 }
 
 //==============================================================================
